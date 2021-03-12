@@ -35,11 +35,12 @@ import fsspec
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 from multiprocess import Pool, RLock
 from tqdm.auto import tqdm
 
 from . import config
-from .arrow_reader import ArrowReader
+from .arrow_reader import ArrowReader, ParquetReader
 from .arrow_writer import ArrowWriter, TypedSequence
 from .features import Features, Value, cast_to_python_objects
 from .filesystems import extract_path_from_uri, is_remote_filesystem
@@ -460,6 +461,17 @@ class Dataset(DatasetInfoMixin, IndexableMixin):
         return CsvDatasetReader(
             path_or_paths, split=split, features=features, cache_dir=cache_dir, keep_in_memory=keep_in_memory, **kwargs
         ).read()
+
+    @classmethod
+    def from_parquet(
+        cls,
+        filename: str,
+        info: Optional[DatasetInfo] = None,
+        split: Optional[NamedSplit] = None,
+        in_memory: bool = False,
+    ):
+        pa_table = pq.read_table(filename, memory_map=not in_memory)
+        return cls(pa_table, info=info, split=split)
 
     def __del__(self):
         if hasattr(self, "_data"):
@@ -2434,6 +2446,19 @@ class Dataset(DatasetInfoMixin, IndexableMixin):
         else:
             written = self._write_csv(file_obj=path_or_buf, batch_size=batch_size, **to_csv_kwargs)
         return written
+
+    def to_parquet(
+        self,
+        path_or_buf: Union[PathLike, BinaryIO],
+        **to_parquet_kwargs,
+   ):
+        """Exports the dataset to parquet
+
+        Args:
+            path_or_buf (``PathLike`` or ``FileOrBuffer``): Either a path to a file or a BinaryIO.
+            to_parquet_kwargs: Parameters to pass to arrow's :func:`arrows.parquet.write_table`
+        """
+        pq.write_table(self._data, path_or_buf, **to_parquet_kwargs)
 
     def to_dict(self, batch_size: Optional[int] = None, batched: bool = False) -> Union[dict, Iterator[dict]]:
         """Returns the dataset as a Python dict. Can also return a generator for large datasets.
